@@ -1,0 +1,142 @@
+name: Build DEX
+
+on:
+  push:
+    branches: [ main, dev ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Create release?'
+        required: false
+        default: 'false'
+
+env:
+  JAVA_VERSION: '17'
+  ANDROID_API: '34'
+  BUILD_TOOLS: '34.0.0'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup JDK
+      uses: actions/setup-java@v4
+      with:
+        java-version: ${{ env.JAVA_VERSION }}
+        distribution: 'temurin'
+
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+
+    - name: Install Build Tools
+      run: |
+        sdkmanager "build-tools;${{ env.BUILD_TOOLS }}"
+        sdkmanager "platforms;android-${{ env.ANDROID_API }}"
+
+    - name: Cache Gradle
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle-
+
+    - name: Download android.jar
+      run: |
+        mkdir -p libs
+        # Пробуем разные источники
+        wget -q --timeout=30 "https://github.com/Sable/android-platforms/raw/master/android-${{ env.ANDROID_API }}/android.jar" -O libs/android.jar ||         wget -q --timeout=30 "https://raw.githubusercontent.com/Sable/android-platforms/master/android-${{ env.ANDROID_API }}/android.jar" -O libs/android.jar ||         cp $ANDROID_SDK_ROOT/platforms/android-${{ env.ANDROID_API }}/android.jar libs/android.jar ||         (echo "Failed to download android.jar" && exit 1)
+        ls -la libs/android.jar
+
+    - name: Compile Java → Class
+      run: |
+        mkdir -p build/classes
+        find src/main/java -name "*.java" > sources.txt
+        cat sources.txt
+
+        javac           -source ${{ env.JAVA_VERSION }}           -target ${{ env.JAVA_VERSION }}           -cp "libs/android.jar"           -d build/classes           @sources.txt 2>&1
+
+        echo "Compiled classes:"
+        find build/classes -name "*.class" | head -20
+
+    - name: Class → DEX
+      run: |
+        mkdir -p build/dex
+
+        # Ищем d8
+        D8_PATH=$(find $ANDROID_SDK_ROOT/build-tools -name "d8" -type f 2>/dev/null | head -1)
+        DX_PATH=$(find $ANDROID_SDK_ROOT/build-tools -name "dx" -type f 2>/dev/null | head -1)
+
+        echo "D8_PATH: $D8_PATH"
+        echo "DX_PATH: $DX_PATH"
+
+        if [ -n "$D8_PATH" ]; then
+          echo "Using d8..."
+          $D8_PATH --release             --lib libs/android.jar             --output build/dex             $(find build/classes -name "*.class")
+        elif [ -n "$DX_PATH" ]; then
+          echo "Using dx..."
+          $DX_PATH --dex             --output=build/dex/classes.dex             build/classes
+        else
+          echo "Neither d8 nor dx found!"
+          ls -la $ANDROID_SDK_ROOT/build-tools/
+          exit 1
+        fi
+
+        # Проверяем результат
+        if [ -f "build/dex/classes.dex" ]; then
+          echo "✅ DEX created successfully!"
+          ls -la build/dex/classes.dex
+          file build/dex/classes.dex
+        else
+          echo "❌ DEX not found!"
+          ls -la build/dex/
+          exit 1
+        fi
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: lyrics-dex-${{ github.run_id }}
+        path: build/dex/classes.dex
+        retention-days: 90
+
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release == 'true'
+      uses: softprops/action-gh-release@v2
+      with:
+        files: build/dex/classes.dex
+        generate_release_notes: true
+        draft: false
+        prerelease: ${{ contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Update DEX URL
+      if: startsWith(github.ref, 'refs/tags/v')
+      run: |
+        TAG=${GITHUB_REF#refs/tags/}
+        DEX_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/classes.dex"
+        echo "::notice title=DEX URL::${DEX_URL}"
+        echo "DEX_URL=${DEX_URL}" >> $GITHUB_ENV
+
+        # Создаём файл с URL для удобства
+        echo "${DEX_URL}" > dex-url.txt
+
+    - name: Upload URL artifact
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: actions/upload-artifact@v4
+      with:
+        name: dex-url
+        path: dex-url.txt
+

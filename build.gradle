@@ -1,0 +1,53 @@
+plugins {
+    id 'java-library'
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+repositories {
+    google()
+    mavenCentral()
+}
+
+dependencies {
+    compileOnly fileTree(dir: 'libs', include: ['*.jar'])
+}
+
+// Задача для создания DEX
+task dex(type: Exec) {
+    dependsOn compileJava
+
+    doFirst {
+        mkdir "${buildDir}/dex"
+    }
+
+    // Используем d8 из Android SDK
+    def d8Path = System.getenv("ANDROID_SDK_ROOT") ? 
+        "${System.getenv('ANDROID_SDK_ROOT')}/build-tools/34.0.0/d8" : 
+        "d8"
+
+    commandLine d8Path, 
+        '--release',
+        '--output', "${buildDir}/dex",
+        "${buildDir}/classes/java/main"
+
+    doLast {
+        println "DEX created at: ${buildDir}/dex/classes.dex"
+    }
+}
+
+// Задача для копирования финального DEX
+task copyDex(type: Copy) {
+    dependsOn dex
+    from "${buildDir}/dex/classes.dex"
+    into "${rootDir}/release"
+    rename { String fileName ->
+        "classes.dex"
+    }
+}
+
+build.dependsOn copyDex
+
