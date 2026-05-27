@@ -212,7 +212,7 @@ public class LyricsActivity extends Activity {
     }
 
     private void parseSyncedLyrics(String lrc) {
-        Pattern pattern = Pattern.compile("\[(\d{2}):\d{2}\.(\d{2,3})\](.*)");
+        Pattern pattern = Pattern.compile("\\[(\\d{2}):\\d{2}\\.(\\d{2,3})\\](.*)");
         Matcher matcher = pattern.matcher(lrc);
 
         while (matcher.find()) {
@@ -226,7 +226,7 @@ public class LyricsActivity extends Activity {
     }
 
     private void parsePlainLyrics(String plain, long duration) {
-        String[] lines = plain.split("\n");
+        String[] lines = plain.split("\\n");
         long interval = (duration * 1000) / Math.max(lines.length, 1);
 
         for (int i = 0; i < lines.length; i++) {
@@ -380,4 +380,4 @@ public class LyricsActivity extends Activity {
             this.time = time;
         }
     }
-}
+            }
