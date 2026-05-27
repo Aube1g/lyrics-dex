@@ -249,7 +249,7 @@ public class LyricsController {
      */
     public static int parseVersionCode(String version) {
         try {
-            String[] parts = version.split("\.");
+            String[] parts = version.split("\\.");
             int major = Integer.parseInt(parts[0]);
             int minor = parts.length > 1 ? Integer.parseInt(parts[1]) : 0;
             int patch = parts.length > 2 ? Integer.parseInt(parts[2]) : 0;
@@ -270,4 +270,4 @@ public class LyricsController {
     private interface LyricsCallback {
         void onLyricsReady(String plain, String synced);
     }
-}
+            }
